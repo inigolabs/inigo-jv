@@ -1,2 +1,2 @@
 run:
-	./gradlew clean bootRun --refresh-dependencies
+	./mvnw clean spring-boot:run
