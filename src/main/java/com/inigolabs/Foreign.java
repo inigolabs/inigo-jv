@@ -13,6 +13,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
+@SuppressWarnings("preview")
 public class Foreign {
     private static final SymbolLookup LOOKUP;
     private static final Linker LINKER = Linker.nativeLinker();
