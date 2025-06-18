@@ -38,9 +38,10 @@
 
     <repositories>
         <repository>
-            <id>github</id>
-            <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/inigolabs/inigo-jv</url>
+            <id>local</id>
+            <!-- <name>GitHub Packages</name> -->
+            <!-- <url>https://maven.pkg.github.com/inigolabs/inigo-jv</url> -->
+            <url>file://${project.basedir}/../../target</url>
         </repository>
     </repositories>
 

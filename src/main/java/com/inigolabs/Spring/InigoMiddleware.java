@@ -40,17 +40,10 @@ public class InigoMiddleware implements WebGraphQlInterceptor {
     
     @Override
     public Mono<WebGraphQlResponse> intercept(WebGraphQlRequest gqlReq, Chain chain) {
-        var query = gqlReq.getDocument();
+        var query = gqlReq.getDocument().getBytes();
         // var variables = gqlReq.getVariables();
 
-        String headers = "";
-        try {
-            headers = objectMapper.writeValueAsString(gqlReq.getHeaders());
-        } catch (Exception e) {
-            System.err.println("ERROR: Failed to serialize headers: " + e.getMessage());
-        }
-
-        var request = Foreign.ProcessRequest(instanceHandle, "", headers, query);
+        var request = Foreign.ProcessRequest(instanceHandle, null, gqlReq.getHeaders(), query);
         if (request.Output() != null && !request.Output().isEmpty()) {
             // TODO: Block the request and return the output from Inigo
         }
@@ -58,9 +51,9 @@ public class InigoMiddleware implements WebGraphQlInterceptor {
         // TODO: Return response from Inigo if available
         return chain.next(gqlReq)
             .doOnSuccess(resp -> {
-                String jres = "";
+                byte[] jres = null;
                 try {
-                    jres = objectMapper.writeValueAsString(resp.toMap());
+                    jres = objectMapper.writeValueAsBytes(resp.toMap());
                 } catch (Exception e) {
                     var errorResponse = java.util.Map.of(
                         "errors", java.util.List.of(
@@ -71,7 +64,7 @@ public class InigoMiddleware implements WebGraphQlInterceptor {
                         )
                     );
                     try {
-                        jres = objectMapper.writeValueAsString(errorResponse);
+                        jres = objectMapper.writeValueAsBytes(errorResponse);
                     } catch (Exception ex) {
                         System.err.println("ERROR: Failed to serialize error response: " + ex.getMessage());
                     }
@@ -80,7 +73,7 @@ public class InigoMiddleware implements WebGraphQlInterceptor {
                 Foreign.ProcessResponse(instanceHandle, request.Handle(), jres);
             })
             .doOnError(error -> {
-                String jres = "";
+                byte[] jres = null;
                 try {
                     var errorResponse = java.util.Map.of(
                         "errors", java.util.List.of(
@@ -90,7 +83,7 @@ public class InigoMiddleware implements WebGraphQlInterceptor {
                             )
                         )
                     );
-                    jres = objectMapper.writeValueAsString(errorResponse);
+                    jres = objectMapper.writeValueAsBytes(errorResponse);
                 } catch (Exception e) {
                     System.err.println("ERROR: Failed to serialize error response: " + e.getMessage());
                 }

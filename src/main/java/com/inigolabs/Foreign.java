@@ -13,10 +13,13 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 @SuppressWarnings("preview")
 public class Foreign {
     private static final SymbolLookup LOOKUP;
     private static final Linker LINKER = Linker.nativeLinker();
+    private static final ObjectMapper objectMapper = new ObjectMapper();
     
     private static final MethodHandle CreateFunc;
     private static final MethodHandle CheckLastErrorFunc;
@@ -253,12 +256,41 @@ public class Foreign {
      * @param input The input data for the request.
      * @return A ProcessRequestResult containing the output, status, and analysis.
      */
-    public static ProcessRequestResult ProcessRequest(long instanceHandle, String subgraphName, String header, String input) {
+    public static ProcessRequestResult ProcessRequest(long instanceHandle, String subgraphName, Object header, byte[] input) {
+        byte[] headers = null;
+        if (header != null) {
+            try {
+                headers = objectMapper.writeValueAsBytes(header);
+            } catch (Exception e) {
+                System.err.println("ERROR: Failed to serialize headers: " + e.getMessage());
+            }
+        }
+        return ProcessRequest(instanceHandle, subgraphName, headers, input);
+    }
+
+    /**
+     * Processes a request using the Inigo service.
+     *
+     * @param instanceHandle The handle to the Inigo instance.
+     * @param subgraphName The name of the subgraph to process.
+     * @param header The headers for the request.
+     * @param input The input data for the request.
+     * @return A ProcessRequestResult containing the output, status, and analysis.
+     */
+    public static ProcessRequestResult ProcessRequest(long instanceHandle, String subgraphName, byte[] header, byte[] input) {
         try (var arena = Arena.ofConfined()) {
-            var subgraphNameSegment = allocateFromNullTerminated(arena, subgraphName);
-            var headerSegment = allocateFromNullTerminated(arena, header);
-            var inputSegment = allocateFromNullTerminated(arena, input);
-            
+            var headerLength = header != null ? header.length : 0;
+            var headerSegment = (header != null && header.length > 0) ? 
+                allocateFromNullTerminated(arena, header) : MemorySegment.NULL;
+
+            var subgraphNameLength = subgraphName != null ? subgraphName.length() : 0;
+            var subgraphNameSegment = (subgraphName != null && !subgraphName.isEmpty()) ? 
+                allocateFromNullTerminated(arena, subgraphName) : MemorySegment.NULL;
+
+            var inputLength = input != null ? input.length : 0;
+            var inputSegment = (input != null && input.length > 0) ? 
+                allocateFromNullTerminated(arena, input) : MemorySegment.NULL;
+
             var outputPtr = arena.allocate(ValueLayout.ADDRESS);
             var outputLenPtr = arena.allocate(ValueLayout.JAVA_LONG);
             var statusOutputPtr = arena.allocate(ValueLayout.ADDRESS);
@@ -269,11 +301,11 @@ public class Foreign {
             var requestHandle = (long) ProcessRequestFunc.invoke(
                 instanceHandle,
                 subgraphNameSegment,
-                (long) subgraphName.getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                subgraphNameLength,
                 headerSegment,
-                (long) header.getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                headerLength,
                 inputSegment,
-                (long) input.getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                inputLength,
                 outputPtr,
                 outputLenPtr,
                 statusOutputPtr,
@@ -313,9 +345,11 @@ public class Foreign {
      * @param input The input data for the response.
      * @return The processed response as a string.
      */
-    public static String ProcessResponse(long instanceHandle, long requestHandle, String input) {
+    public static String ProcessResponse(long instanceHandle, long requestHandle, byte[] input) {
         try (var arena = Arena.ofConfined()) {
-            var inputSegment = allocateFromNullTerminated(arena, input); // TODO: Java 23 arena.allocateFrom(input, java.nio.charset.StandardCharsets.UTF_8);
+            var inputLength = input != null ? input.length : 0;
+            var inputSegment = (input != null && input.length > 0) ? 
+                allocateFromNullTerminated(arena, input) : MemorySegment.NULL;
             
             var outputPtr = arena.allocate(ValueLayout.ADDRESS);
             var outputLenPtr = arena.allocate(ValueLayout.JAVA_LONG);
@@ -324,11 +358,15 @@ public class Foreign {
                 instanceHandle,
                 requestHandle,
                 inputSegment,
-                (long) input.getBytes(java.nio.charset.StandardCharsets.UTF_8).length,
+                inputLength,
                 outputPtr,
                 outputLenPtr
             );
-            var output = extractString(outputPtr, outputLenPtr);
+
+            String output = null;
+            if (outputLenPtr.get(ValueLayout.JAVA_LONG, 0) > 0) {
+                output = extractString(outputPtr, outputLenPtr);
+            }
 
             Foreign.DisposeHandle(handle);
             return output;
@@ -518,6 +556,16 @@ public class Foreign {
         // Add null-termination
         segment.set(ValueLayout.JAVA_BYTE, bytes.length, (byte) 0);
         
+        segment.asByteBuffer().put(bytes);
+        return segment;
+    }
+
+    private static MemorySegment allocateFromNullTerminated(Arena arena, byte[] bytes) {
+        // var bytes = str.getBytes(StandardCharsets.UTF_8);
+        var segment = arena.allocate(bytes.length + 1);
+
+        // Add null-termination
+        segment.set(ValueLayout.JAVA_BYTE, bytes.length, (byte) 0);
         segment.asByteBuffer().put(bytes);
         return segment;
     }
