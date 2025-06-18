@@ -223,7 +223,7 @@ public class Foreign {
             setField(configSegment, "federation", (byte) (config.Federation ? 1 : 0));
             setField(configSegment, "federationExample", (byte) (config.FederationExample ? 1 : 0));
 
-            return (long) CreateFunc.invoke(configSegment);
+            return (long) CreateFunc.invokeExact(configSegment);
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call create function", e);
         }
@@ -236,7 +236,7 @@ public class Foreign {
      */
     public static String CheckLastError() {
         try {
-            var resultSegment = (MemorySegment) CheckLastErrorFunc.invoke();
+            var resultSegment = (MemorySegment) CheckLastErrorFunc.invokeExact();
             if (resultSegment.address() == 0) {
                 return null;
             }
@@ -279,15 +279,15 @@ public class Foreign {
      */
     public static ProcessRequestResult ProcessRequest(long instanceHandle, String subgraphName, byte[] header, byte[] input) {
         try (var arena = Arena.ofConfined()) {
-            var headerLength = header != null ? header.length : 0;
+            long headerLength = header != null ? header.length : 0;
             var headerSegment = (header != null && header.length > 0) ? 
                 allocateFromNullTerminated(arena, header) : MemorySegment.NULL;
 
-            var subgraphNameLength = subgraphName != null ? subgraphName.length() : 0;
+            long subgraphNameLength = subgraphName != null ? subgraphName.length() : 0;
             var subgraphNameSegment = (subgraphName != null && !subgraphName.isEmpty()) ? 
                 allocateFromNullTerminated(arena, subgraphName) : MemorySegment.NULL;
 
-            var inputLength = input != null ? input.length : 0;
+            long inputLength = input != null ? input.length : 0;
             var inputSegment = (input != null && input.length > 0) ? 
                 allocateFromNullTerminated(arena, input) : MemorySegment.NULL;
 
@@ -298,7 +298,7 @@ public class Foreign {
             var analysisPtr = arena.allocate(ValueLayout.ADDRESS);
             var analysisLenPtr = arena.allocate(ValueLayout.JAVA_LONG);
             
-            var requestHandle = (long) ProcessRequestFunc.invoke(
+            var requestHandle = (long) ProcessRequestFunc.invokeExact(
                 instanceHandle,
                 subgraphNameSegment,
                 subgraphNameLength,
@@ -347,14 +347,14 @@ public class Foreign {
      */
     public static String ProcessResponse(long instanceHandle, long requestHandle, byte[] input) {
         try (var arena = Arena.ofConfined()) {
-            var inputLength = input != null ? input.length : 0;
+            long inputLength = input != null ? input.length : 0;
             var inputSegment = (input != null && input.length > 0) ? 
                 allocateFromNullTerminated(arena, input) : MemorySegment.NULL;
             
             var outputPtr = arena.allocate(ValueLayout.ADDRESS);
             var outputLenPtr = arena.allocate(ValueLayout.JAVA_LONG);
             
-            var handle = (long) ProcessResponseFunc.invoke(
+            var handle = (long) ProcessResponseFunc.invokeExact(
                 instanceHandle,
                 requestHandle,
                 inputSegment,
@@ -383,7 +383,7 @@ public class Foreign {
      */
     public static void DisposePinner(long id) {
         try {
-            DisposePinnerFunc.invoke(id);
+            DisposePinnerFunc.invokeExact(id);
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call disposePinner function", e);
         }
@@ -396,7 +396,7 @@ public class Foreign {
      */
     public static void DisposeHandle(long id) {
         try {
-            DisposeHandleFunc.invoke(id);
+            DisposeHandleFunc.invokeExact(id);
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call disposeHandle function", e);
         }
@@ -407,7 +407,7 @@ public class Foreign {
      */
     public static void Shutdown() {
         try {
-            ShutdownFunc.invoke();
+            ShutdownFunc.invokeExact();
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call shutdown function", e);
         }
@@ -418,7 +418,7 @@ public class Foreign {
      */
     public static void Flush() {
         try {
-            FlushFunc.invoke();
+            FlushFunc.invokeExact();
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call flush function", e);
         }
@@ -431,7 +431,7 @@ public class Foreign {
      */
     public static String GetVersion() {
         try {
-            var versionSegment = (MemorySegment) GetVersionFunc.invoke();
+            var versionSegment = (MemorySegment) GetVersionFunc.invokeExact();
             if (versionSegment.address() == 0) {
                 return null;
             }
@@ -448,7 +448,7 @@ public class Foreign {
      */
     public static void TestRuntime() {
         try {
-            TestRuntimeFunc.invoke();
+            TestRuntimeFunc.invokeExact();
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call test_runtime function", e);
         }
@@ -470,7 +470,7 @@ public class Foreign {
         try (var arena = Arena.ofConfined()) {
             var schemaSegment = allocateFromNullTerminated(arena, schemaBase64);
             var schemaLen = (long) schema.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
-            return (boolean) UpdateSchemaFunc.invoke(instanceHandle, schemaSegment, schemaLen);
+            return (boolean) UpdateSchemaFunc.invokeExact(instanceHandle, schemaSegment, schemaLen);
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call update_schema function", e);
         }
@@ -484,7 +484,7 @@ public class Foreign {
      */
     public static long CopyQuerydata(long instanceHandle) {
         try {
-            return (long) CopyQuerydataFunc.invoke(instanceHandle);
+            return (long) CopyQuerydataFunc.invokeExact(instanceHandle);
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call copy_querydata function", e);
         }
@@ -501,7 +501,7 @@ public class Foreign {
             var outputPtr = arena.allocate(ValueLayout.ADDRESS);
             var outputLenPtr = arena.allocate(ValueLayout.JAVA_LONG);
             
-            var handle = (long) GatewayInfoFunc.invoke(
+            var handle = (long) GatewayInfoFunc.invokeExact(
                 instanceHandle,
                 outputPtr,
                 outputLenPtr
@@ -523,7 +523,7 @@ public class Foreign {
      */
     public static boolean IsPersistingEnabled(long instanceHandle) {
         try {
-            return (boolean) IsPersistingEnabledFunc.invoke(instanceHandle);
+            return (boolean) IsPersistingEnabledFunc.invokeExact(instanceHandle);
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call is_persisting_enabled function", e);
         }
@@ -535,7 +535,7 @@ public class Foreign {
      */
     public static void NoOp() {
         try {
-            CnoopFunc.invoke();
+            CnoopFunc.invokeExact();
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call cnoop function", e);
         }
