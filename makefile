@@ -1,3 +1,2 @@
 build:
-	mvn install
-	mvn package -Dmaven.test.skip
+	mvn install package -Dmaven.test.skip
