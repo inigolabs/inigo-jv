@@ -9,7 +9,6 @@ import java.lang.foreign.SymbolLookup;
 import java.lang.foreign.ValueLayout;
 import java.lang.foreign.GroupLayout;
 import java.lang.invoke.MethodHandle;
-import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
@@ -240,8 +239,7 @@ public class Foreign {
             if (resultSegment.address() == 0) {
                 return null;
             }
-            var cString = resultSegment.reinterpret(Long.MAX_VALUE);
-            return getString(cString);
+            return extractString(resultSegment.reinterpret(Long.MAX_VALUE));
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call check_lasterror function", e);
         }
@@ -278,25 +276,28 @@ public class Foreign {
      * @return A ProcessRequestResult containing the output, status, and analysis.
      */
     public static ProcessRequestResult ProcessRequest(long instanceHandle, String subgraphName, byte[] header, byte[] input) {
+        final long headerLength = header != null ? header.length : 0;
+        final long subgraphNameLength = subgraphName != null ? subgraphName.length() : 0;
+        final long inputLength = input != null ? input.length : 0;
+        
         try (var arena = Arena.ofConfined()) {
-            long headerLength = header != null ? header.length : 0;
             var headerSegment = (header != null && header.length > 0) ? 
                 allocateFromNullTerminated(arena, header) : MemorySegment.NULL;
 
-            long subgraphNameLength = subgraphName != null ? subgraphName.length() : 0;
             var subgraphNameSegment = (subgraphName != null && !subgraphName.isEmpty()) ? 
                 allocateFromNullTerminated(arena, subgraphName) : MemorySegment.NULL;
 
-            long inputLength = input != null ? input.length : 0;
             var inputSegment = (input != null && input.length > 0) ? 
                 allocateFromNullTerminated(arena, input) : MemorySegment.NULL;
 
-            var outputPtr = arena.allocate(ValueLayout.ADDRESS);
-            var outputLenPtr = arena.allocate(ValueLayout.JAVA_LONG);
-            var statusOutputPtr = arena.allocate(ValueLayout.ADDRESS);
-            var statusOutputLenPtr = arena.allocate(ValueLayout.JAVA_LONG);
-            var analysisPtr = arena.allocate(ValueLayout.ADDRESS);
-            var analysisLenPtr = arena.allocate(ValueLayout.JAVA_LONG);
+            // Allocate output pointers in a single block
+            var outputBlock = arena.allocate(ValueLayout.ADDRESS.byteSize() * 6);
+            var outputPtr = outputBlock.asSlice(0, ValueLayout.ADDRESS.byteSize());
+            var outputLenPtr = outputBlock.asSlice(ValueLayout.ADDRESS.byteSize(), ValueLayout.JAVA_LONG.byteSize());
+            var statusOutputPtr = outputBlock.asSlice(ValueLayout.ADDRESS.byteSize() + ValueLayout.JAVA_LONG.byteSize(), ValueLayout.ADDRESS.byteSize());
+            var statusOutputLenPtr = outputBlock.asSlice(ValueLayout.ADDRESS.byteSize() * 2 + ValueLayout.JAVA_LONG.byteSize(), ValueLayout.JAVA_LONG.byteSize());
+            var analysisPtr = outputBlock.asSlice(ValueLayout.ADDRESS.byteSize() * 2 + ValueLayout.JAVA_LONG.byteSize() * 2, ValueLayout.ADDRESS.byteSize());
+            var analysisLenPtr = outputBlock.asSlice(ValueLayout.ADDRESS.byteSize() * 3 + ValueLayout.JAVA_LONG.byteSize() * 2, ValueLayout.JAVA_LONG.byteSize());
             
             var requestHandle = (long) ProcessRequestFunc.invokeExact(
                 instanceHandle,
@@ -314,14 +315,12 @@ public class Foreign {
                 analysisLenPtr
             );
 
-            int statusCode = 200;
-            long code = statusOutputLenPtr.get(ValueLayout.JAVA_LONG, 0);
-            if (code < 0) {
-                statusCode = (int)-code;
-            }
+            var statusLenValue = statusOutputLenPtr.get(ValueLayout.JAVA_LONG, 0);
+            var statusCode = statusLenValue < 0 ? (int)-statusLenValue : 200;
 
-            if (outputLenPtr.get(ValueLayout.JAVA_LONG, 0) > 0) {
-                var response = extractString(outputPtr, outputLenPtr);
+            var outputLen = outputLenPtr.get(ValueLayout.JAVA_LONG, 0);
+            if (outputLen > 0) {
+                var response = extractString(outputPtr, outputLen);
                 Foreign.DisposeHandle(requestHandle);    
                 return new ProcessRequestResult(0, response, null, null, statusCode);
             }
@@ -346,13 +345,15 @@ public class Foreign {
      * @return The processed response as a string.
      */
     public static String ProcessResponse(long instanceHandle, long requestHandle, byte[] input) {
+        final long inputLength = input != null ? input.length : 0;
+
         try (var arena = Arena.ofConfined()) {
-            long inputLength = input != null ? input.length : 0;
             var inputSegment = (input != null && input.length > 0) ? 
                 allocateFromNullTerminated(arena, input) : MemorySegment.NULL;
             
-            var outputPtr = arena.allocate(ValueLayout.ADDRESS);
-            var outputLenPtr = arena.allocate(ValueLayout.JAVA_LONG);
+            var outputBlock = arena.allocate(ValueLayout.ADDRESS.byteSize() * 2);
+            var outputPtr = outputBlock.asSlice(0, ValueLayout.ADDRESS.byteSize());
+            var outputLenPtr = outputBlock.asSlice(ValueLayout.ADDRESS.byteSize(), ValueLayout.JAVA_LONG.byteSize());
             
             var handle = (long) ProcessResponseFunc.invokeExact(
                 instanceHandle,
@@ -363,11 +364,7 @@ public class Foreign {
                 outputLenPtr
             );
 
-            String output = null;
-            if (outputLenPtr.get(ValueLayout.JAVA_LONG, 0) > 0) {
-                output = extractString(outputPtr, outputLenPtr);
-            }
-
+            var output = extractString(outputPtr, outputLenPtr);
             Foreign.DisposeHandle(handle);
             return output;
 
@@ -435,8 +432,7 @@ public class Foreign {
             if (versionSegment.address() == 0) {
                 return null;
             }
-            var cString = versionSegment.reinterpret(Long.MAX_VALUE);
-            return getString(cString);
+            return extractString(versionSegment.reinterpret(Long.MAX_VALUE));
         } catch (Throwable e) {
             throw new RuntimeException("Failed to call get_version function", e);
         }
@@ -541,36 +537,25 @@ public class Foreign {
         }
     }
 
-    // private static MemorySegment allocateFrom(Arena arena, String str) {
-    //     var bytes = str.getBytes(StandardCharsets.UTF_8);
-    //     var segment = arena.allocate(bytes.length);
-
-    //     segment.asByteBuffer().put(bytes);
-    //     return segment;
-    // }
+    private static MemorySegment allocateFromNullTerminated(Arena arena, byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return MemorySegment.NULL;
+        }
+        var segment = arena.allocate(bytes.length + 1);
+        MemorySegment.copy(bytes, 0, segment, ValueLayout.JAVA_BYTE, 0, bytes.length);
+        segment.set(ValueLayout.JAVA_BYTE, bytes.length, (byte) 0); // Add null-termination
+        return segment;
+    }
 
     private static MemorySegment allocateFromNullTerminated(Arena arena, String str) {
-        var bytes = str.getBytes(StandardCharsets.UTF_8);
-        var segment = arena.allocate(bytes.length + 1);
-
-        // Add null-termination
-        segment.set(ValueLayout.JAVA_BYTE, bytes.length, (byte) 0);
-        
-        segment.asByteBuffer().put(bytes);
-        return segment;
+        if (str == null || str.isEmpty()) {
+            return MemorySegment.NULL;
+        }
+        return allocateFromNullTerminated(arena, str.getBytes(StandardCharsets.UTF_8));
     }
 
-    private static MemorySegment allocateFromNullTerminated(Arena arena, byte[] bytes) {
-        // var bytes = str.getBytes(StandardCharsets.UTF_8);
-        var segment = arena.allocate(bytes.length + 1);
-
-        // Add null-termination
-        segment.set(ValueLayout.JAVA_BYTE, bytes.length, (byte) 0);
-        segment.asByteBuffer().put(bytes);
-        return segment;
-    }
-
-    private static String getString(MemorySegment cString) {
+    // Null-terminated string extraction
+    private static String extractString(MemorySegment cString) {
         var buffer = cString.asByteBuffer();
         var len = 0;
 
@@ -585,19 +570,28 @@ public class Foreign {
         return new String(bytes, StandardCharsets.UTF_8);
     }
 
-    private static String extractString(MemorySegment stringPtr, MemorySegment lengthPtr) {
+    private static String extractString(MemorySegment stringPtr, long length) {
+        if (length <= 0) return null;
+        
         var stringSegment = stringPtr.get(ValueLayout.ADDRESS, 0);
-        if (stringSegment.address() == 0) {
-            return null;
-        }
-        var length = lengthPtr.get(ValueLayout.JAVA_LONG, 0);
-        if (length == 0) {
-            return null;
-        }
+        if (stringSegment.address() == 0) return null;
+        
         var boundedSegment = stringSegment.reinterpret(length);
-        // var bytes = boundedSegment.asByteBuffer().array();
-        // return new String(bytes, java.nio.charset.StandardCharsets.UTF_8); 
-        return Charset.forName("UTF-8").decode(boundedSegment.asByteBuffer()).toString();
+        var buffer = boundedSegment.asByteBuffer();
+        
+        // Use direct buffer operations for better performance
+        if (buffer.hasArray()) {
+            return new String(buffer.array(), buffer.arrayOffset() + buffer.position(), (int)length, StandardCharsets.UTF_8);
+        } 
+            
+        var bytes = new byte[(int)length];
+        buffer.get(bytes);
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private static String extractString(MemorySegment stringPtr, MemorySegment lengthPtr) {
+        var length = lengthPtr.get(ValueLayout.JAVA_LONG, 0);
+        return extractString(stringPtr, length);
     }
 
     private static void setField(MemorySegment segment, String fieldName, byte value) {
