@@ -281,14 +281,35 @@ public class Foreign {
         final long inputLength = input != null ? input.length : 0;
         
         try (var arena = Arena.ofConfined()) {
-            var headerSegment = (header != null && header.length > 0) ? 
-                allocateFromNullTerminated(arena, header) : MemorySegment.NULL;
+            var totalSize = 
+                (headerLength > 0 ? headerLength : 0) +
+                (subgraphNameLength > 0 ? subgraphNameLength : 0) +
+                (inputLength > 0 ? inputLength : 0);
 
-            var subgraphNameSegment = (subgraphName != null && !subgraphName.isEmpty()) ? 
-                allocateFromNullTerminated(arena, subgraphName) : MemorySegment.NULL;
+            // Allocate input pointers in a single block
+            var mainBuffer = arena.allocate(totalSize);
+            var offset = 0;
+            
+            var headerSegment = MemorySegment.NULL;
+            if (headerLength > 0) {
+                headerSegment = mainBuffer.asSlice(offset, headerLength);
+                MemorySegment.copy(header, 0, headerSegment, ValueLayout.JAVA_BYTE, 0, (int)headerLength);
+                offset += headerLength;
+            }
 
-            var inputSegment = (input != null && input.length > 0) ? 
-                allocateFromNullTerminated(arena, input) : MemorySegment.NULL;
+            var subgraphNameSegment = MemorySegment.NULL;
+            if (subgraphNameLength > 0) {
+                var nameBytes = subgraphName.getBytes(StandardCharsets.UTF_8);
+                subgraphNameSegment = mainBuffer.asSlice(offset, nameBytes.length);
+                MemorySegment.copy(nameBytes, 0, subgraphNameSegment, ValueLayout.JAVA_BYTE, 0, nameBytes.length);
+                offset += nameBytes.length;
+            }
+
+            var inputSegment = MemorySegment.NULL;
+            if (inputLength > 0) {
+                inputSegment = mainBuffer.asSlice(offset, inputLength);
+                MemorySegment.copy(input, 0, inputSegment, ValueLayout.JAVA_BYTE, 0, (int)inputLength);
+            }
 
             // Allocate output pointers in a single block
             var outputBlock = arena.allocate(ValueLayout.ADDRESS.byteSize() * 6);
@@ -577,8 +598,16 @@ public class Foreign {
         if (stringSegment.address() == 0) return null;
         
         var boundedSegment = stringSegment.reinterpret(length);
+
+        // For small strings, use array copy directly
+        if (length <= 1024) {
+            var bytes = new byte[(int)length];
+            MemorySegment.copy(boundedSegment, ValueLayout.JAVA_BYTE, 0, bytes, 0, (int)length);
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+
         var buffer = boundedSegment.asByteBuffer();
-        
+
         // Use direct buffer operations for better performance
         if (buffer.hasArray()) {
             return new String(buffer.array(), buffer.arrayOffset() + buffer.position(), (int)length, StandardCharsets.UTF_8);
